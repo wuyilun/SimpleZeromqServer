@@ -1,0 +1,98 @@
+protobuf是google出的一个结构化信息传递的工具，用于传递自定的strcut xxx {}内容。
+
+写一个简单的消息,文件名为msg.proto,内容如下:
+message hello
+{
+	required int32 id = 1;
+	required string str = 2;
+}
+
+在当前路径下输入如下命令
+protoc -I=. --cpp_out=. msg.proto
+
+生成两个文件msg.pb.h和msg.pb.cc,使用的时候直接包含头文件msg.pb.h就可以了.
+
+写一个客户的client.cpp
+
+#include "msg.pb.h"
+#include "zhelpers.h"
+#include <string>
+using namespace std;
+
+int main (void)
+{
+    void *context = zmq_ctx_new ();
+
+    hello msg1;		//消息结构对象
+    msg1.set_id(101);
+    msg1.set_str("hello");
+    string msg_send;
+    msg1.SerializeToString(&msg_send);		//序列化
+
+    //  Socket to talk to server
+    void *requester = zmq_socket (context, ZMQ_REQ);
+    zmq_connect (requester, "tcp://localhost:5559");
+
+    int request_nbr;
+    for (request_nbr = 0; request_nbr != 10; request_nbr++) {
+
+	char *s = (char *)msg_send.c_str();
+        s_send (requester, s); 		//传送序列化后的字符串
+
+        char *string = s_recv (requester);
+        printf ("Received reply %d [%s]\n", request_nbr, string); 
+        free (string);
+    }
+    zmq_close (requester);
+    zmq_ctx_destroy (context);
+    return 0;
+}
+
+然后输入如下命令编译,注意要把msg.pb.cc加入进来一起编译,还得把zeromq和protobuf的库链接进来:
+g++ client.cpp msg.pb.cc -o client -lprotobuf -lzmq
+
+写接收消息的worker.cpp
+
+#include "zhelpers.h"
+#include "msg.pb.h"
+#include <unistd.h>
+#include <string>
+using namespace std;
+
+int main (void)
+{
+    void *context = zmq_ctx_new ();
+
+    //  Socket to talk to clients
+    void *responder = zmq_socket (context, ZMQ_REP);
+    zmq_connect (responder, "tcp://localhost:5560");
+
+    while (1) {
+        //  Wait for next request from client
+        char *str = s_recv (responder);
+	string recv_str = str;
+	hello h_msg;
+	h_msg.ParseFromString(recv_str);
+	if(h_msg.id() == 101)
+		printf ("Received from message %d request: [%s]\n", h_msg.id(), h_msg.str().c_str());
+	else
+		printf ("Not Received from 101 message!");
+        free (str);
+
+        //  Do some 'work'
+        sleep (1);
+
+        //  Send reply back to client
+		char s[] = "World";
+        s_send (responder, s);
+    }
+    //  We never get here, but clean up anyhow
+    zmq_close (responder);
+    zmq_ctx_destroy (context);
+    return 0;
+}
+
+g++ worker.cpp msg.pb.cc -o worker -lprotobuf -lzmq
+
+
+

@@ -1,0 +1,1 @@
+g++ worker.cpp msg.pb.cc connectPSQL.cpp -o worker -lzmq -lpqxx -lpq -lprotobuf
